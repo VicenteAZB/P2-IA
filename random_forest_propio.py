@@ -23,6 +23,7 @@ def _entrenar_un_arbol(X, y, semilla_arbol, profundidad_maxima, max_features,
     indices = generador.integers(0, n, size=n)
 
     arbol = DecisionTreeClassifier(
+        criterion="entropy",
         max_depth=profundidad_maxima,
         max_features=max_features,          # subconjunto aleatorio de variables EN CADA DIVISIÓN
         min_samples_split=min_muestras_division,
@@ -110,7 +111,7 @@ if __name__ == "__main__":
     X_ent, X_pru, y_ent, y_pru = cargar_particion()
 
     bosque = RandomForestPropio(n_arboles=101, profundidad_maxima=10).fit(X_ent, y_ent)
-    arbol = DecisionTreeClassifier(max_depth=10, random_state=5040).fit(X_ent, y_ent)
+    arbol = DecisionTreeClassifier(max_depth=10, criterion="entropy",random_state=5040).fit(X_ent, y_ent)
 
     print("Sensibilidad RF propio :", recall_score(y_pru, bosque.predict(X_pru)))
     print("Sensibilidad árbol solo:", recall_score(y_pru, arbol.predict(X_pru)))
