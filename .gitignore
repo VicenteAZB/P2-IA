@@ -1,0 +1,14 @@
+# ==============================================================================
+# Gitignore para el Proyecto de Detección de Fraude
+# ==============================================================================
+
+# Ignorar la carpeta de resultados (y todo su contenido)
+resultados/
+
+# Ignorar el entorno virtual de Python
+entorno_fraude/
+__pycache__/
+
+# Ignorar el archivo de datos específico (y variaciones comunes por seguridad)
+creditcard.csv
+*.csv
