@@ -1,22 +1,29 @@
 """
 pipelines.py — Factory de Pipelines (solo definición, sin ajustar).
 
-Dos tipos para comparar: "ros" (RandomOverSampler) y "smote" (SMOTE).
-Cada tipo trae 8 pipelines: 4 modelos x {sin, con} compensación.
+Cada modelo tiene dos versiones: sin compensación del desbalance y con SMOTE.
+Se arman 8 pipelines: 4 modelos x {sin SMOTE, con SMOTE}.
 
-Orden: scaler -> selector -> sampler -> clf.
-Todo se ajusta dentro del Pipeline (solo con el train de cada fold),
-así no hay fuga. Se usa imblearn.Pipeline porque el sampler solo
-debe tocar el train, no la validación.
+Orden: scaler -> selector (KS) -> sampler -> clf.
+Todo se ajusta dentro del Pipeline, solo con el train de cada fold, así no hay fuga.
+Se usa imblearn.Pipeline porque el sampler solo debe tocar el train, nunca la validación.
 
-Escalado solo en kNN/SVM (usan distancias). En Árbol/RF es passthrough.
-CON usa solo sampler, sin class_weight (evita doble compensación).
+Decisiones de diseño:
+- Escalado: kNN y SVM (usan distancias) siempre. También cualquier pipeline con SMOTE,
+  porque SMOTE busca vecinos por distancia euclidiana y sin escalar Time (σ≈47.000)
+  dominaría la vecindad. Para los árboles el escalado no cambia el resultado.
+- Selección de características: filtro estadístico con el test de Kolmogorov-Smirnov. Se
+  conservan las variables cuya distribución difiere entre fraude y legítimo con p < ALFA_KS.
+  KS no pertenece a ninguno de los clasificadores, solo usa el orden de los valores (no
+  depende de la escala) y por eso elige lo mismo en las 8 configuraciones.
+- Árboles: criterio de entropía (ganancia de información, el criterio de ID3).
+- La compensación es SMOTE en los cuatro modelos (una sola estrategia para todos).
 """
-from functools import partial
-
-from imblearn.over_sampling import RandomOverSampler, SMOTE
+import numpy as np
+from imblearn.over_sampling import SMOTE
 from imblearn.pipeline import Pipeline
-from sklearn.feature_selection import SelectFromModel, SelectKBest, mutual_info_classif
+from scipy.stats import ks_2samp
+from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.preprocessing import StandardScaler
 from sklearn.svm import SVC
@@ -25,106 +32,86 @@ from sklearn.tree import DecisionTreeClassifier
 from datos import SEMILLA
 from random_forest_propio import RandomForestPropio
 
-# --- Constantes ---
 MODELOS = ("knn", "arbol", "svm", "rf_propio")
-TIPOS_SAMPLER = ("ros", "smote")
-SELECTORES = ("kbest", "from_model")
-K_DEFECTO = 15  # variables de SelectKBest (se buscará en el Grid futuro)
+NOMBRES = {"knn": "kNN", "arbol": "Árbol", "svm": "SVM", "rf_propio": "RF propio"}
 
-# mutual_info con semilla fija (reproducible)
-_mi_con_semilla = partial(mutual_info_classif, random_state=SEMILLA)
+ALFA_KS = 0.05
 
 
-def _crear_scaler(modelo):
-    """StandardScaler solo en kNN/SVM; resto passthrough."""
-    if modelo in ("knn", "svm"):
+class SelectorKS(BaseEstimator, TransformerMixin):
+    """Conserva las variables cuya distribución difiere entre clases (test KS, p < alfa).
+
+    Si ninguna supera el umbral, se conserva la de mayor estadístico KS.
+    """
+
+    def __init__(self, alfa=ALFA_KS):
+        self.alfa = alfa
+
+    def fit(self, X, y):
+        X, y = np.asarray(X), np.asarray(y)
+        pruebas = [ks_2samp(X[y == 0, j], X[y == 1, j]) for j in range(X.shape[1])]
+        self.ks_ = np.array([p.statistic for p in pruebas])
+        self.mascara_ = np.array([p.pvalue for p in pruebas]) < self.alfa
+        if not self.mascara_.any():
+            self.mascara_[np.argmax(self.ks_)] = True
+        return self
+
+    def transform(self, X):
+        return np.asarray(X)[:, self.mascara_]
+
+    def get_support(self, indices=False):
+        """Máscara booleana (o índices) de las variables conservadas."""
+        return np.flatnonzero(self.mascara_) if indices else self.mascara_
+
+
+def clave(modelo, smote):
+    """Identificador de la configuración: 'arbol' o 'arbol_smote'."""
+    return f"{modelo}_smote" if smote else modelo
+
+
+def etiqueta(modelo, smote):
+    """Nombre legible de la configuración: 'Árbol' o 'Árbol con SMOTE'."""
+    return f"{NOMBRES[modelo]} con SMOTE" if smote else NOMBRES[modelo]
+
+
+def _crear_scaler(modelo, smote):
+    """StandardScaler en kNN, SVM y siempre que haya SMOTE; en el resto, passthrough."""
+    if modelo in ("knn", "svm") or smote:
         return StandardScaler()
     return "passthrough"
 
 
-def _crear_selector(selector="kbest", k=K_DEFECTO):
-    """SelectKBest(mutual_info) o SelectFromModel con árbol base."""
-    if selector == "kbest":
-        return SelectKBest(score_func=_mi_con_semilla, k=k)
-    if selector == "from_model":
-        base = DecisionTreeClassifier(random_state=SEMILLA)
-        return SelectFromModel(estimator=base)
-    raise ValueError(f"selector debe ser {SELECTORES}, llegó: {selector!r}")
-
-
-def _crear_sampler(compensar, sampler_tipo="ros"):
-    """SIN -> passthrough; CON -> ROS o SMOTE."""
-    if not compensar:
+def _crear_sampler(smote):
+    """Sin SMOTE -> passthrough; con SMOTE -> SMOTE."""
+    if not smote:
         return "passthrough"
-    if sampler_tipo == "ros":
-        return RandomOverSampler(random_state=SEMILLA)
-    if sampler_tipo == "smote":
-        # ~48 fraudes por fold de CV, k=5 es seguro
-        return SMOTE(random_state=SEMILLA, k_neighbors=5)
-    raise ValueError(f"sampler_tipo debe ser {TIPOS_SAMPLER}, llegó: {sampler_tipo!r}")
+    return SMOTE(random_state=SEMILLA, k_neighbors=5)
 
 
 def _crear_clasificador(modelo):
-    """Clasificador con defaults (el ajuste fino va en el Grid futuro)."""
+    """Clasificador con valores por defecto; el ajuste fino se hace en busqueda.py."""
     if modelo == "knn":
         return KNeighborsClassifier()
     if modelo == "arbol":
-        return DecisionTreeClassifier(random_state=SEMILLA)
+        return DecisionTreeClassifier(criterion="entropy", random_state=SEMILLA)
     if modelo == "svm":
         return SVC(random_state=SEMILLA)
     if modelo == "rf_propio":
-        # impar: la votación nunca empata
         return RandomForestPropio(semilla=SEMILLA)
     raise ValueError(f"modelo debe ser {MODELOS}, llegó: {modelo!r}")
 
 
-def make_pipeline(modelo, compensar, sampler_tipo="ros", selector="kbest", k=K_DEFECTO):
-    """Arma un Pipeline sin ajustar. compensar=False -> condición SIN."""
+def make_pipeline(modelo, smote, memory=None):
+    """Pipeline sin ajustar. smote=False -> sin compensación; smote=True -> con SMOTE.
+
+    memory: carpeta de caché para scaler, selector y sampler. Así el selector KS se ajusta
+    una sola vez por fold y se reutiliza en todas las combinaciones de hiperparámetros.
+    """
     if modelo not in MODELOS:
         raise ValueError(f"modelo debe ser {MODELOS}, llegó: {modelo!r}")
     return Pipeline([
-        ("scaler", _crear_scaler(modelo)),
-        ("selector", _crear_selector(selector, k)),
-        ("sampler", _crear_sampler(compensar, sampler_tipo)),
+        ("scaler", _crear_scaler(modelo, smote)),
+        ("selector", SelectorKS()),
+        ("sampler", _crear_sampler(smote)),
         ("clf", _crear_clasificador(modelo)),
-    ])
-
-
-def get_pipelines(sampler_tipo="ros", selector="kbest", k=K_DEFECTO):
-    """Los 8 pipelines del tipo pedido, sin ajustar. Claves: {modelo}_{sin,con}."""
-    if sampler_tipo not in TIPOS_SAMPLER:
-        raise ValueError(f"sampler_tipo debe ser {TIPOS_SAMPLER}, llegó: {sampler_tipo!r}")
-    pipes = {}
-    for modelo in MODELOS:
-        pipes[f"{modelo}_sin"] = make_pipeline(
-            modelo, compensar=False, sampler_tipo=sampler_tipo, selector=selector, k=k
-        )
-        pipes[f"{modelo}_con"] = make_pipeline(
-            modelo, compensar=True, sampler_tipo=sampler_tipo, selector=selector, k=k
-        )
-    return pipes
-
-
-# 2 tipos listos para comparar y elegir uno.
-PIPELINES_ROS = get_pipelines("ros")
-PIPELINES_SMOTE = get_pipelines("smote")
-
-
-def describir_pipelines(pipes):
-    """Una línea por pipeline: nombre -> pasos activos (sin ajustar)."""
-    lineas = []
-    for nombre, pipe in pipes.items():
-        pasos = []
-        for paso, obj in pipe.steps:
-            pasos.append(paso if isinstance(obj, str) else f"{paso}:{type(obj).__name__}")
-        lineas.append(f"{nombre:15s} | {' -> '.join(pasos)}")
-    return "\n".join(lineas)
-
-
-if __name__ == "__main__":
-    # Muestra la estructura sin ajustar (sin fuga posible).
-    print(f"SEMILLA={SEMILLA} | K_DEFECTO={K_DEFECTO}\n")
-    print("--- TIPO A: ROS ---")
-    print(describir_pipelines(PIPELINES_ROS))
-    print("\n--- TIPO B: SMOTE ---")
-    print(describir_pipelines(PIPELINES_SMOTE))
+    ], memory=memory)

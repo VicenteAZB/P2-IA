@@ -21,7 +21,7 @@ from sklearn.model_selection import train_test_split
 
 # --- Parámetros globales del proyecto ---
 SEMILLA = 5040
-N_SUBMUESTRA = 50_000
+N_SUBMUESTRA = 20_000          # el enunciado exige al menos 10.000 registros
 PROPORCION_PRUEBA = 0.30
 RUTA_CSV = Path(__file__).parent / "creditcard.csv"  # el CSV debe estar junto a este archivo
 
@@ -75,3 +75,4 @@ if __name__ == "__main__":
     # Comprobación mínima de que la carga funciona (la exploración está en exploracion.py)
     X_ent, X_pru, y_ent, y_pru = cargar_particion()
     print(f"Entrenamiento: {X_ent.shape} | Prueba: {X_pru.shape}")
+    print(f"Fraudes -> entrenamiento: {int(y_ent.sum())} | prueba: {int(y_pru.sum())}")

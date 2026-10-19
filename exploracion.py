@@ -9,16 +9,12 @@ Reglas de uso de los datos:
     características se hace dentro de la validación cruzada.
 
 Ejecutar:
-    python exploracion.py            # guarda las figuras en resultados/
-    python exploracion.py --mostrar  # además las abre en ventanas
+    python exploracion.py            # guarda las figuras en resultados_exploracion/
 """
-import sys
 from pathlib import Path
 
 import matplotlib
-MOSTRAR = "--mostrar" in sys.argv
-if not MOSTRAR:
-    matplotlib.use("Agg")                  # guardar figuras sin abrir ventanas
+matplotlib.use("Agg")                
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -30,12 +26,12 @@ from sklearn.model_selection import StratifiedKFold
 
 from datos import SEMILLA, cargar_etapas, particionar
 
-CARPETA = Path(__file__).parent / "resultados"
+CARPETA = Path(__file__).parent / "resultados_exploracion"  # carpeta de salida de figuras y tablas
 CARPETA.mkdir(exist_ok=True)
 
 COLOR_LEGITIMO = "#2E75B6"
 COLOR_FRAUDE = "#C0392B"
-COLOR_PCA = "#8FA9C4"
+COLOR_NEUTRO = "#8FA9C4"
 COLOR_ORIGINAL = "#E67E22"
 MONTOS_MARCAS = [0, 1, 10, 100, 1000, 10000, 100000]
 N_FOLDS = 5                                # debe coincidir con la validación cruzada final
@@ -56,9 +52,7 @@ def formato(valor, decimales=0):
 
 def guardar(fig, nombre):
     fig.savefig(CARPETA / nombre, dpi=200, bbox_inches="tight")
-    print(f"   -> figura guardada: resultados/{nombre}\n")
-    if MOSTRAR:
-        plt.show()
+    print(f"   -> figura guardada: resultados_exploracion/{nombre}\n")
     plt.close(fig)
 
 
@@ -83,33 +77,6 @@ def figura_tabla(celdas, columnas, titulo, nombre, ancho=8, destacar_filas=()):
 def separar_por_clase(serie, y):
     """Devuelve (valores de legítimos, valores de fraudes) de una variable."""
     return serie[y == 0], serie[y == 1]
-
-
-def estadisticas_por_clase(legitimos, fraudes):
-    """Resumen con asimetría y valores extremos (regla del rango intercuartílico)."""
-    columnas = {}
-    for etiqueta, v in [("Legítimos", legitimos), ("Fraudes", fraudes)]:
-        q1, q3 = v.quantile([0.25, 0.75])
-        limite = q3 + 1.5 * (q3 - q1)
-        columnas[etiqueta] = {
-            "n": len(v), "mediana": v.median(), "media": v.mean(),
-            "percentil 99": v.quantile(0.99), "máximo": v.max(),
-            "asimetría": v.skew(), "% valores extremos": 100 * (v > limite).mean(),
-        }
-    return pd.DataFrame(columnas).round(2)
-
-
-def marcas_de_monto(ax, maximo, eje="x"):
-    """Escala log en el eje elegido, rotulada con los montos reales."""
-    montos = [m for m in MONTOS_MARCAS if m <= maximo]
-    posiciones = np.log1p(montos)
-    rotulos = [formato(m) for m in montos]
-    if eje == "x":
-        ax.set_xticks(posiciones)
-        ax.set_xticklabels(rotulos)
-    else:
-        ax.set_yticks(posiciones)
-        ax.set_yticklabels(rotulos)
 
 
 def calcular_ks(X, y):
@@ -226,8 +193,8 @@ def figura_fraudes_por_fold(y_ent, y_pru):
 
     x = np.arange(N_FOLDS)
     fig, ax = plt.subplots(figsize=(9, 4))
-    b1 = ax.bar(x - 0.2, folds["fraudes_entrenar"], 0.4, color=COLOR_LEGITIMO, label="train")
-    b2 = ax.bar(x + 0.2, folds["fraudes_validar"], 0.4, color=COLOR_FRAUDE, label="test")
+    b1 = ax.bar(x - 0.2, folds["fraudes_entrenar"], 0.4, color=COLOR_LEGITIMO, label="Entrenamiento (CV)")
+    b2 = ax.bar(x + 0.2, folds["fraudes_validar"], 0.4, color=COLOR_FRAUDE, label="Validación (CV)")
     for barras in (b1, b2):
         ax.bar_label(barras, padding=2)
     ax.set_xticks(x)
@@ -279,7 +246,7 @@ def figura_escala_variables(X):
           f"cociente: {formato(desviaciones.max() / desviaciones.min())} veces")
     print("   Time:", formato(desviaciones["Time"], 1), "| Amount:", formato(desviaciones["Amount"], 1))
 
-    colores = [COLOR_ORIGINAL if c in ("Time", "Amount") else COLOR_PCA for c in desviaciones.index]
+    colores = [COLOR_ORIGINAL if c in ("Time", "Amount") else COLOR_NEUTRO for c in desviaciones.index]
     fig, ax = plt.subplots(figsize=(11, 4))
     ax.bar(desviaciones.index, desviaciones.values, color=colores)
     ax.set_yscale("log")
@@ -293,7 +260,7 @@ def figura_escala_variables(X):
                     (list(desviaciones.index).index(nombre), desviaciones[nombre]),
                     ha="center", va="bottom", xytext=(0, 3), textcoords="offset points",
                     fontweight="bold")
-    ax.legend(handles=[Patch(color=COLOR_PCA, label="V1–V28 (componentes PCA)"),
+    ax.legend(handles=[Patch(color=COLOR_NEUTRO, label="V1–V28 (componentes PCA)"),
                        Patch(color=COLOR_ORIGINAL, label="Variables originales (Time, Amount)")],
               loc="upper center", frameon=False)
     ax.set_title("Las variables están en escalas muy distintas: kNN y SVM requieren escalado")
@@ -301,69 +268,63 @@ def figura_escala_variables(X):
     guardar(fig, "06_escala_variables.png")
 
 
-# ----------------------------------------------------------------- 7. Amount
-def figura_amount(X, y):
-    leg, fra = separar_por_clase(X["Amount"], y)
-    print("7. AMOUNT POR CLASE")
-    print(estadisticas_por_clase(leg, fra).to_string())
-    print("   (% valores extremos = sobre Q3 + 1,5·IQR de su propia clase)")
-
-    l_leg, l_fra = np.log1p(leg), np.log1p(fra)
-    fig, ejes = plt.subplots(1, 2, figsize=(11, 4), gridspec_kw={"width_ratios": [3, 2]})
-
-    bins = np.linspace(0, np.log1p(X["Amount"].max()), 41)
-    for valores, color, etiqueta in [(l_leg, COLOR_LEGITIMO, f"Legítimos (n = {formato(len(leg))})"),
-                                     (l_fra, COLOR_FRAUDE, f"Fraudes (n = {formato(len(fra))})")]:
-        ejes[0].hist(valores, bins=bins, weights=np.full(len(valores), 100 / len(valores)),
-                     alpha=0.55, color=color, label=etiqueta)
-    marcas_de_monto(ejes[0], X["Amount"].max(), "x")
-    ejes[0].set_xlabel("Monto de la transacción (escala logarítmica)")
-    ejes[0].set_ylabel("% de las transacciones de la clase")
-    ejes[0].set_title("Distribución del monto")
-    ejes[0].legend(frameon=False)
-
-    caja = ejes[1].boxplot([l_leg, l_fra], patch_artist=True, widths=0.55,
-                           flierprops={"marker": "o", "markersize": 2, "alpha": 0.4},
-                           medianprops={"color": "black"})
-    for parte, color in zip(caja["boxes"], [COLOR_LEGITIMO, COLOR_FRAUDE]):
-        parte.set_facecolor(color)
-        parte.set_alpha(0.6)
-    ejes[1].set_xticks([1, 2])
-    ejes[1].set_xticklabels(["Legítimos", "Fraudes"])
-    marcas_de_monto(ejes[1], X["Amount"].max(), "y")
-    ejes[1].set_ylabel("Monto (escala logarítmica)")
-    ejes[1].set_title("Mediana, cuartiles y valores extremos")
-    fig.suptitle(f"Monto de las transacciones por clase (asimetría global: "
-                 f"{formato(X['Amount'].skew(), 1)})", fontweight="bold")
-    fig.tight_layout()
-    guardar(fig, "07_amount_por_clase.png")
+# ------------------------------------------- 7 y 8. Distribución de todas las variables
+def _valores_para_grafico(serie, variable):
+    """Amount se grafica en log(1 + monto) y Time en horas; el resto, tal cual."""
+    if variable == "Amount":
+        return np.log1p(serie)
+    if variable == "Time":
+        return serie / 3600
+    return serie
 
 
-# ------------------------------------------------------------------ 8. Time
-def figura_time(X, y):
-    horas = X["Time"] / 3600
-    leg, fra = separar_por_clase(horas, y)
-    print("8. TIME POR CLASE (en horas desde la primera transacción)")
-    print(estadisticas_por_clase(leg, fra).to_string())
+def _unidad(variable):
+    return {"Amount": " (escala log)", "Time": " (horas)"}.get(variable, "")
 
-    horas_max = int(np.ceil(horas.max() / 2) * 2)
-    bins = np.arange(0, horas_max + 2, 2)
-    fig, ax = plt.subplots(figsize=(10, 4))
-    for valores, color, etiqueta in [(leg, COLOR_LEGITIMO, f"Legítimos (n = {formato(len(leg))})"),
-                                     (fra, COLOR_FRAUDE, f"Fraudes (n = {formato(len(fra))})")]:
-        ax.hist(valores, bins=bins, weights=np.full(len(valores), 100 / len(valores)),
-                alpha=0.55, color=color, label=etiqueta)
-    if horas_max > 24:
-        ax.axvline(24, color="gray", linestyle="--", linewidth=1)
-        ax.text(24.3, ax.get_ylim()[1] * 0.95, "día 2", color="gray", va="top")
-    ax.set_xlabel("Horas transcurridas desde la primera transacción (tramos de 2 h)")
-    ax.set_ylabel("% de las transacciones de la clase")
-    ax.set_title("¿Cuándo ocurren las transacciones?  Time por clase")
-    ax.legend(frameon=False)
-    fig.tight_layout()
-    guardar(fig, "08_time_por_clase.png")
+def figura_distribuciones(X, y, variables, nombre, titulo):
+    """Histograma por clase de cada variable. Los extremos (fuera del percentil 0,5 a 99,5)
+    se agrupan en los bordes para que no aplasten el resto de la distribución."""
+    columnas = 5
+    filas = int(np.ceil(len(variables) / columnas))
+    fig, ejes = plt.subplots(filas, columnas, figsize=(15, 2.7 * filas))
+    for i, (ax, variable) in enumerate(zip(ejes.ravel(), variables)):
+        valores = _valores_para_grafico(X[variable], variable)
+        bajo, alto = valores.quantile([0.005, 0.995])
+        bins = np.linspace(bajo, alto, 31)
+        for clase, color in [(0, COLOR_LEGITIMO), (1, COLOR_FRAUDE)]:
+            v = valores[y == clase].clip(bajo, alto)
+            ax.hist(v, bins=bins, weights=np.full(len(v), 100 / len(v)), alpha=0.55, color=color)
+        ax.set_title(f"{variable}{_unidad(variable)}", fontsize=9)
+        if variable == "Amount":
+            montos = [m for m in MONTOS_MARCAS if bajo <= np.log1p(m) <= alto]
+            ax.set_xticks(np.log1p(montos))
+            ax.set_xticklabels([formato(m) for m in montos])
+        ax.tick_params(labelsize=8)
+        if i % columnas == 0:
+            ax.set_ylabel("% de la clase", fontsize=8)
+    for ax in ejes.ravel()[len(variables):]:
+        ax.axis("off")
+    fig.legend(handles=[Patch(color=COLOR_LEGITIMO, alpha=0.55,
+                              label=f"Legítimos (n = {formato(int((y == 0).sum()))})"),
+                        Patch(color=COLOR_FRAUDE, alpha=0.55,
+                              label=f"Fraudes (n = {formato(int(y.sum()))})")],
+               loc="lower center", ncol=2, frameon=False)
+    fig.suptitle(titulo, fontweight="bold")
+    fig.tight_layout(rect=[0, 0.04, 1, 0.96])
+    guardar(fig, nombre)
 
 
+def figura_distribuciones_todas(X, y):
+    variables = list(X.columns)
+    mitad = len(variables) // 2
+    print("7 y 8. DISTRIBUCIÓN DE TODAS LAS VARIABLES POR CLASE")
+    print(f"   Con {int(y.sum())} fraudes, los histogramas de fraude son irregulares; "
+          "cada clase está en % de sus propias transacciones.")
+    figura_distribuciones(X, y, variables[:mitad], "07_distribuciones_parte1.png",
+                          f"Distribución por clase: {variables[0]} a {variables[mitad - 1]}")
+    figura_distribuciones(X, y, variables[mitad:], "08_distribuciones_parte2.png",
+                          f"Distribución por clase: {variables[mitad]} a {variables[-1]}")
+    
 # ----------------------------------------------- 9. Variables V más llamativas
 def figura_variables_llamativas(X, y, ks, cantidad=6):
     """Cajas de las V cuyas distribuciones más difieren entre clases (estadístico KS)."""
@@ -375,7 +336,7 @@ def figura_variables_llamativas(X, y, ks, cantidad=6):
     n_leg, n_fra = int((y == 0).sum()), int((y == 1).sum())
     for ax, variable in zip(ejes.ravel(), ks_v.index[:cantidad]):
         leg, fra = separar_por_clase(X[variable], y)
-        caja = ax.boxplot([leg, fra], patch_artist=True, widths=0.55, showfliers=False,
+        caja = ax.boxplot([leg, fra], patch_artist=True, widths=0.55, showfliers=True,
                           medianprops={"color": "black"})
         for parte, color in zip(caja["boxes"], [COLOR_LEGITIMO, COLOR_FRAUDE]):
             parte.set_facecolor(color)
@@ -383,12 +344,9 @@ def figura_variables_llamativas(X, y, ks, cantidad=6):
         ax.set_xticks([1, 2])
         ax.set_xticklabels([f"Legítimos\n(n = {formato(n_leg)})", f"Fraudes\n(n = {formato(n_fra)})"])
         ax.set_title(f"{variable}   (KS = {formato(ks_v[variable], 2)})")
-    fig.suptitle("Variables V cuya distribución más difiere entre fraudes y legítimos\n"
-                 "(no se muestran los valores atípicos)", fontweight="bold")
+    fig.suptitle("Variables V cuya distribución más difiere entre fraudes y legítimos", fontweight="bold")
     fig.tight_layout()
     guardar(fig, "09_variables_llamativas.png")
-    return list(ks_v.index)
-
 
 # ------------------------------------- 10. Relación de cada variable con la clase
 def figura_relacion_objetivo(X, y, ks, top=10):
@@ -419,7 +377,12 @@ def figura_relacion_objetivo(X, y, ks, top=10):
           [["Pearson r", "Spearman ρ", "KS", "Info. mutua"]].round(3).to_string())
     print("   Pearson con Class binaria = correlación punto-biserial. Con ~0,17 % de fraude, los")
     print("   valores absolutos quedan comprimidos: se usan para ORDENAR, no para interpretar.")
-
+    n_fra, n_leg = int((y == 1).sum()), int((y == 0).sum())
+    ks_critico = 1.36 * np.sqrt((n_fra + n_leg) / (n_fra * n_leg))   # umbral KS, α = 0,05
+    n_sig = int((tabla["KS"] > ks_critico).sum())
+    print(f"   Con {n_fra} fraudes, un KS menor a {formato(ks_critico, 2)} no se distingue del azar "
+          f"(α = 0,05): {n_sig} de {len(tabla)} variables superan ese umbral.")
+    print("   La información mutua es muy ruidosa con tan pocos fraudes: interpretarla con cautela.")
     medidas = [("|Pearson|", "Pearson (lineal)"),
                ("|Spearman|", "Spearman (rangos)"),
                ("KS", "KS (distribuciones)"),
@@ -437,12 +400,14 @@ def figura_relacion_objetivo(X, y, ks, top=10):
     fig, ejes = plt.subplots(2, 2, figsize=(11, 9))
     for ax, (col, titulo) in zip(ejes.ravel(), medidas):
         serie = tabla[col].sort_values(ascending=False).head(top)
-        colores = [COLOR_FRAUDE if v in comunes else COLOR_PCA for v in serie.index]
+        colores = [COLOR_FRAUDE if v in comunes else COLOR_NEUTRO for v in serie.index]
         ax.barh(serie.index[::-1], serie.values[::-1], color=colores[::-1])
         ax.set_title(titulo)
         ax.set_xlabel(col)
+        if col == "KS":
+            ax.axvline(ks_critico, color="gray", linestyle="--", linewidth=1)
     ejes[1, 1].legend(handles=[Patch(color=COLOR_FRAUDE, label=f"En el top {top} de las cuatro"),
-                               Patch(color=COLOR_PCA, label="Solo en algunas medidas")],
+                               Patch(color=COLOR_NEUTRO, label="Solo en algunas medidas")],
                       loc="lower right", frameon=False)
     fig.suptitle(f"Las {top} variables más relacionadas con el fraude según cuatro medidas",
                  fontweight="bold")
@@ -450,30 +415,13 @@ def figura_relacion_objetivo(X, y, ks, top=10):
     guardar(fig, "10_relacion_con_objetivo.png")
     return tabla
 
-# ------------------------------------------------ 11. Separabilidad visual
-def figura_dispersion(X, y, variables_top):
-    a, b = variables_top[:2]
-    print(f"11. SEPARABILIDAD VISUAL: {a} vs {b} (las dos V con mayor KS)")
-    fig, ax = plt.subplots(figsize=(7, 5.5))
-    ax.scatter(X.loc[y == 0, a], X.loc[y == 0, b], s=6, alpha=0.25, color=COLOR_LEGITIMO,
-               label=f"Legítimos (n = {formato(int((y == 0).sum()))})")
-    ax.scatter(X.loc[y == 1, a], X.loc[y == 1, b], s=22, alpha=0.9, color=COLOR_FRAUDE,
-               edgecolor="white", linewidth=0.4, label=f"Fraudes (n = {formato(int(y.sum()))})")
-    ax.set_xlabel(a)
-    ax.set_ylabel(b)
-    ax.legend(frameon=False)
-    ax.set_title(f"¿Se separan las clases? {a} vs {b}")
-    fig.tight_layout()
-    guardar(fig, "11_dispersion_top2.png")
-
-
-# --------------------------------------- 12. Correlación entre predictoras
+# --------------------------------------- 11. Correlación entre predictoras
 def figura_correlacion_predictoras(X):
     corr = X.corr(method="pearson")
     vs = [c for c in X.columns if c.startswith("V")]
     entre_v = np.array(corr.loc[vs, vs])
     pares = np.abs(entre_v[np.triu_indices(len(vs), k=1)])
-    print("12. CORRELACIÓN ENTRE PREDICTORAS (Pearson)")
+    print("11. CORRELACIÓN ENTRE PREDICTORAS (Pearson)")
     print(f"   Máxima |correlación| entre dos variables V: {formato(pares.max(), 3)}")
     print(f"   % de pares de V con |correlación| > 0,3: {formato(100 * (pares > 0.3).mean(), 1)} %")
     print("   (Las V salen de PCA: son linealmente no correlacionadas por construcción; eso no")
@@ -492,21 +440,20 @@ def figura_correlacion_predictoras(X):
     fig.colorbar(imagen, ax=ax, shrink=0.8, label="Correlación de Pearson")
     ax.set_title("Correlación entre variables predictoras (entrenamiento)")
     fig.tight_layout()
-    guardar(fig, "12_correlacion_predictoras.png")
+    guardar(fig, "11_correlacion_predictoras.png")
 
 
-# ----------------------------------------- 13. Colas pesadas y valores atípicos
+# ----------------------------------------- 12. Colas pesadas y valores atípicos
 def figura_colas(X):
     asimetria = X.skew().abs().sort_values(ascending=False)
     n_pesadas = int((asimetria > 1).sum())
-    print("13. ASIMETRÍA Y COLAS PESADAS")
+    print("12. ASIMETRÍA Y COLAS PESADAS")
     print(f"   Variables con |asimetría| > 1: {n_pesadas} de {len(asimetria)}")
     print("   Más asimétricas: " + ", ".join(f"{k} ({formato(v, 1)})" for k, v in asimetria.head(5).items()))
     print("   Decisión: NO se recortan valores atípicos; en fraude los extremos suelen ser la señal.")
 
-    colores = [COLOR_ORIGINAL if c in ("Time", "Amount") else COLOR_PCA for c in asimetria.index]
     fig, ax = plt.subplots(figsize=(11, 4))
-    ax.bar(asimetria.index, asimetria.values, color=colores)
+    ax.bar(asimetria.index, asimetria.values, color=COLOR_NEUTRO)
     ax.axhline(1, color="gray", linestyle="--", linewidth=1)
     ax.text(len(asimetria) - 0.5, 1, " |asimetría| = 1", color="gray", va="bottom", ha="right")
     ax.set_yscale("log")
@@ -516,7 +463,7 @@ def figura_colas(X):
     ax.set_ylabel("|Asimetría| (escala log)")
     ax.set_title(f"{n_pesadas} de {len(asimetria)} variables tienen colas marcadas; no se recortan los atípicos")
     fig.tight_layout()
-    guardar(fig, "13_asimetria_colas.png")
+    guardar(fig, "12_asimetria_colas.png")
 
 
 # ----------------------------------------------------------------------- main
@@ -531,12 +478,10 @@ def main():
     figura_fraudes_por_fold(y_ent, y_pru)
     figura_exactitud_enganosa(y_ent, y_pru)
     figura_escala_variables(X_ent)
-    figura_amount(X_ent, y_ent)
-    figura_time(X_ent, y_ent)
+    figura_distribuciones_todas(X_ent, y_ent)
     ks = calcular_ks(X_ent, y_ent)
-    variables_top = figura_variables_llamativas(X_ent, y_ent, ks)
+    figura_variables_llamativas(X_ent, y_ent, ks)
     figura_relacion_objetivo(X_ent, y_ent, ks)
-    figura_dispersion(X_ent, y_ent, variables_top)
     figura_correlacion_predictoras(X_ent)
     figura_colas(X_ent)
 

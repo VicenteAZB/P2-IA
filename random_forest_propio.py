@@ -1,10 +1,10 @@
 """
 random_forest_propio.py
-Módulo 2: Random Forest de implementación propia (bootstrap + bagging + votación).
+Random Forest de implementación propia (bootstrap + bagging + votación).
 
-Usa DecisionTreeClassifier solo como árbol base. NO se usa RandomForestClassifier
-ni BaggingClassifier: el ensamble (muestras bootstrap, entrenamiento de cada árbol
-y votación) se construye aquí.
+Usa DecisionTreeClassifier solo como árbol base (criterio de entropía, como ID3). NO se usa
+RandomForestClassifier ni BaggingClassifier: el ensamble (muestras bootstrap, entrenamiento
+de cada árbol y votación) se construye aquí.
 """
 import numpy as np
 from joblib import Parallel, delayed
@@ -14,7 +14,7 @@ from sklearn.utils.validation import check_array, check_X_y
 
 
 def _entrenar_un_arbol(X, y, semilla_arbol, profundidad_maxima, max_features,
-                       min_muestras_division, class_weight):
+                       min_muestras_division):
     """Entrena UN árbol independiente con su propia muestra bootstrap."""
     generador = np.random.default_rng(semilla_arbol)
 
@@ -27,7 +27,6 @@ def _entrenar_un_arbol(X, y, semilla_arbol, profundidad_maxima, max_features,
         max_depth=profundidad_maxima,
         max_features=max_features,          # subconjunto aleatorio de variables EN CADA DIVISIÓN
         min_samples_split=min_muestras_division,
-        class_weight=class_weight,
         random_state=semilla_arbol,         # semilla distinta por árbol
     )
     arbol.fit(X[indices], y[indices])
@@ -44,7 +43,6 @@ class RandomForestPropio(ClassifierMixin, BaseEstimator):
     max_features : variables consideradas en cada división ("sqrt", "log2", int, float).
     semilla : semilla general; de ella se derivan las semillas de cada árbol.
     min_muestras_division : mínimo de muestras para dividir un nodo.
-    class_weight : ponderación de clases del árbol base (None o "balanced").
     n_jobs : procesos en paralelo para entrenar los árboles (-1 = todos los núcleos).
 
     Regla de desempate: si hay empate en la votación (solo posible con un número par
@@ -53,13 +51,12 @@ class RandomForestPropio(ClassifierMixin, BaseEstimator):
     """
 
     def __init__(self, n_arboles=101, profundidad_maxima=None, max_features="sqrt",
-                 semilla=5040, min_muestras_division=2, class_weight=None, n_jobs=-1):
+                 semilla=5040, min_muestras_division=2, n_jobs=-1):
         self.n_arboles = n_arboles
         self.profundidad_maxima = profundidad_maxima
         self.max_features = max_features
         self.semilla = semilla
         self.min_muestras_division = min_muestras_division
-        self.class_weight = class_weight
         self.n_jobs = n_jobs
 
     def fit(self, X, y):
@@ -75,7 +72,7 @@ class RandomForestPropio(ClassifierMixin, BaseEstimator):
         self.arboles_ = Parallel(n_jobs=self.n_jobs)(
             delayed(_entrenar_un_arbol)(
                 X, y, int(s), self.profundidad_maxima, self.max_features,
-                self.min_muestras_division, self.class_weight,
+                self.min_muestras_division,
             )
             for s in semillas_arboles
         )
@@ -101,17 +98,3 @@ class RandomForestPropio(ClassifierMixin, BaseEstimator):
     def predict_proba(self, X):
         """Fracción de árboles que votó por cada clase."""
         return self._contar_votos(X) / len(self.arboles_)
-
-
-if __name__ == "__main__":
-    # Prueba rápida: RF propio vs un árbol individual, sobre la partición del proyecto
-    from sklearn.metrics import recall_score
-    from datos import cargar_particion
-
-    X_ent, X_pru, y_ent, y_pru = cargar_particion()
-
-    bosque = RandomForestPropio(n_arboles=101, profundidad_maxima=10).fit(X_ent, y_ent)
-    arbol = DecisionTreeClassifier(max_depth=10, criterion="entropy",random_state=5040).fit(X_ent, y_ent)
-
-    print("Sensibilidad RF propio :", recall_score(y_pru, bosque.predict(X_pru)))
-    print("Sensibilidad árbol solo:", recall_score(y_pru, arbol.predict(X_pru)))
