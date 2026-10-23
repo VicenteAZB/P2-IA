@@ -40,16 +40,22 @@ SCORING = {"recall": "recall",
            "precision": make_scorer(precision_score, zero_division=0)}
 
 # Profundidades compartidas por el árbol y el RF propio, para que sean comparables
-PROFUNDIDADES = [3, 5, 8, 12, None]
-
+PROFUNDIDADES = [1, 3, 7, 14, None] # El 14 sale de round(np.log2(12200)), cantidad de muestras de entrenamiento. Con SMOTE serian aprox 22363 pero 2^15 es 32768, por ende 14 sirve para ambos.
+MIN_MUESTRAS_DIVISION = [2, 50, 100]  # para árbol y RF propio. 
 # Espacios de búsqueda acotados (prefijo clf__ = nombre del paso en el Pipeline).
 # Mismo espacio con y sin SMOTE, para que la diferencia entre condiciones venga solo de SMOTE.
 GRILLAS = {
-    "knn": {"clf__n_neighbors": [1, 3, 5, 11, 21], "clf__weights": ["uniform", "distance"]},
-    "arbol": {"clf__max_depth": PROFUNDIDADES},
-    "svm": {"clf__C": [0.1, 1, 10, 100], "clf__gamma": [0.01, 0.1]},
+    "knn": {"clf__n_neighbors": [1, 3, 5, 7, 9, 11, 13, 15, 21, 31, 51, 110, 150], # np.sqrt(12200) es aprox 110, np.sqrt(22363) es aprox 150. sqrt(n) no es siempre el mejor k vecinos.
+            "clf__weights": ["uniform", "distance"], 
+            "clf__metric": ["euclidean", "manhattan"]},
+    "arbol": {"clf__max_depth": PROFUNDIDADES, 
+              "clf__min_samples_split": MIN_MUESTRAS_DIVISION},
+    "svm": {"clf__C": [0.1, 1, 10, 100], 
+            "clf__gamma": [0.01, 0.1, "scale"]},
     "rf_propio": {"clf__profundidad_maxima": PROFUNDIDADES,
-                  "clf__max_features": ["sqrt", 0.3, 0.5]},
+                  "clf__max_features": ["sqrt", 0.3, 0.5],
+                  "clf__n_arboles": [51, 101],
+                  "clf__min_muestras_division": MIN_MUESTRAS_DIVISION}
 }
 
 

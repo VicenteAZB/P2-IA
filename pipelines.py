@@ -35,6 +35,12 @@ from random_forest_propio import RandomForestPropio
 MODELOS = ("knn", "arbol", "svm", "rf_propio")
 NOMBRES = {"knn": "kNN", "arbol": "Árbol", "svm": "SVM", "rf_propio": "RF propio"}
 
+# Nivel de significancia (α) del filtro KS: probabilidad máxima aceptada de conservar una
+# variable que en realidad no distingue fraude de legítimo (falso positivo). Se conserva la
+# variable si p < ALFA_KS. Se eligió 0,05 por ser el valor estándar en pruebas de hipótesis y
+# un filtro moderado: con tan pocos fraudes, uno más estricto podría descartar variables
+# débiles pero útiles, lo que va contra la prioridad del proyecto (minimizar falsos negativos).
+
 ALFA_KS = 0.05
 
 
