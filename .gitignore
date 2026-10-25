@@ -4,6 +4,7 @@
 
 # Ignorar la carpeta de resultados (y todo su contenido)
 resultados_exploracion/
+resultados_busqueda/
 resultados_evaluacion/
 
 # Ignorar el entorno virtual de Python
