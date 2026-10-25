@@ -25,6 +25,7 @@ import joblib
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from matplotlib.patches import Rectangle
 import numpy as np
 import pandas as pd
 from matplotlib.patches import Patch
@@ -40,6 +41,8 @@ RUTA_BUSQUEDA = Path(__file__).parent / "resultados_busqueda" / "busqueda.joblib
 CARPETA = Path(__file__).parent / "resultados_evaluacion"
 CARPETA.mkdir(exist_ok=True)
 
+VERDE = "#2e9e4f"
+ROJO = "#d64545"
 COLOR_SIN = "#2E75B6"
 COLOR_SMOTE = "#E67E22"
 COLOR_PRUEBA = "#C0392B"
@@ -148,14 +151,30 @@ def colores_config(nombres):
 def figura_matrices(matrices, titulo, nombre):
     """Matrices de confusión con el fraude (clase positiva) primero: [[TP, FN], [FP, TN]].
     Una columna por modelo, arriba sin SMOTE y abajo con SMOTE."""
+
+    # Color por casilla: filas = real, columnas = predicho
+    colores = [[VERDE, ROJO],   # Fraude real:    Fraude pred. (TP) / Legítimo pred. (FN)
+               [ROJO, VERDE]]   # Legítimo real:  Fraude pred. (FP) / Legítimo pred. (TN)
+
     fig, ejes = plt.subplots(2, 4, figsize=(14, 7))
     for ax, (config, m) in zip(ejes.T.ravel(), matrices.items()):
         m = m[::-1, ::-1]
-        ax.imshow(m, cmap="Blues")
+
+        # Fondo blanco, solo para fijar los límites del eje
+        ax.imshow(np.zeros(m.shape), cmap="gray_r", vmin=0, vmax=1)
         ax.grid(False)
+
+        # Cada casilla con su color
+        for i in range(2):
+            for j in range(2):
+                ax.add_patch(Rectangle((j - 0.5, i - 0.5), 1, 1,
+                                       facecolor=colores[i][j],
+                                       edgecolor="white", linewidth=2, zorder=1))
+
         for (i, j), v in np.ndenumerate(m):
             ax.text(j, i, f"{int(v):,}".replace(",", "."), ha="center", va="center",
-                    color="white" if v > m.max() / 2 else "black", fontsize=11, fontweight="bold")
+                    color="white", fontsize=11, fontweight="bold", zorder=3)
+
         ax.set_xticks([0, 1])
         ax.set_xticklabels(["Fraude", "Legítimo"])
         ax.set_yticks([0, 1])
@@ -163,10 +182,10 @@ def figura_matrices(matrices, titulo, nombre):
         ax.set_xlabel("Predicho")
         ax.set_ylabel("Real")
         ax.set_title(config)
+
     fig.suptitle(titulo, fontweight="bold")
     fig.tight_layout()
     guardar(fig, nombre)
-
 
 def figura_metricas(configs, valores, titulo, nombre):
     """Mapa de calor configuración x métrica. La tasa de falsos negativos se colorea invertida
