@@ -146,18 +146,20 @@ def colores_config(nombres):
 
 # -------------------------------------------------------------------- figuras
 def figura_matrices(matrices, titulo, nombre):
-    """Matrices de confusión: una columna por modelo, arriba sin SMOTE y abajo con SMOTE."""
+    """Matrices de confusión con el fraude (clase positiva) primero: [[TP, FN], [FP, TN]].
+    Una columna por modelo, arriba sin SMOTE y abajo con SMOTE."""
     fig, ejes = plt.subplots(2, 4, figsize=(14, 7))
     for ax, (config, m) in zip(ejes.T.ravel(), matrices.items()):
+        m = m[::-1, ::-1]
         ax.imshow(m, cmap="Blues")
         ax.grid(False)
         for (i, j), v in np.ndenumerate(m):
             ax.text(j, i, f"{int(v):,}".replace(",", "."), ha="center", va="center",
                     color="white" if v > m.max() / 2 else "black", fontsize=11, fontweight="bold")
         ax.set_xticks([0, 1])
-        ax.set_xticklabels(["Legítimo", "Fraude"])
+        ax.set_xticklabels(["Fraude", "Legítimo"])
         ax.set_yticks([0, 1])
-        ax.set_yticklabels(["Legítimo", "Fraude"])
+        ax.set_yticklabels(["Fraude", "Legítimo"])
         ax.set_xlabel("Predicho")
         ax.set_ylabel("Real")
         ax.set_title(config)
